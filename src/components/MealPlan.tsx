@@ -93,26 +93,30 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
   };
 
   const renderMealStats = (meal: Meal) => (
-    <div className="stats stats-vertical lg:stats-horizontal shadow">
-      <div className="stat">
-        <div className="stat-title">Calories</div>
-        <div className="stat-value text-primary">{meal?.calories || 0}</div>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+      <div className="stat bg-base-100 rounded-lg p-2 md:p-4">
+        <div className="stat-title text-sm md:text-base">Calories</div>
+        <div className="stat-value text-primary text-lg md:text-2xl">
+          {meal?.calories || 0}
+        </div>
       </div>
-      <div className="stat">
-        <div className="stat-title">Protein</div>
-        <div className="stat-value text-secondary">
+      <div className="stat bg-base-100 rounded-lg p-2 md:p-4">
+        <div className="stat-title text-sm md:text-base">Protein</div>
+        <div className="stat-value text-secondary text-lg md:text-2xl">
           {meal?.macros?.protein || 0}g
         </div>
       </div>
-      <div className="stat">
-        <div className="stat-title">Carbs</div>
-        <div className="stat-value text-accent">
+      <div className="stat bg-base-100 rounded-lg p-2 md:p-4">
+        <div className="stat-title text-sm md:text-base">Carbs</div>
+        <div className="stat-value text-accent text-lg md:text-2xl">
           {meal?.macros?.carbs || 0}g
         </div>
       </div>
-      <div className="stat">
-        <div className="stat-title">Fats</div>
-        <div className="stat-value">{meal?.macros?.fats || 0}g</div>
+      <div className="stat bg-base-100 rounded-lg p-2 md:p-4">
+        <div className="stat-title text-sm md:text-base">Fats</div>
+        <div className="stat-value text-lg md:text-2xl">
+          {meal?.macros?.fats || 0}g
+        </div>
       </div>
     </div>
   );
@@ -121,17 +125,17 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="card bg-base-100 shadow-xl"
+      className="card bg-base-100 shadow-xl mx-auto w-full"
     >
-      <div className="card-body">
+      <div className="card-body p-4 md:p-6">
         <h2 className="card-title flex items-center gap-2">
           <Utensils className="w-6 h-6 text-primary" />
           7-Day Meal Plan
         </h2>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           <button
-            className={`btn ${
+            className={`btn btn-sm md:btn-md ${
               selectedPlan === "affordable" ? "btn-primary" : "btn-ghost"
             }`}
             onClick={() => handlePlanChange("affordable")}
@@ -140,7 +144,7 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
             Affordable Plan
           </button>
           <button
-            className={`btn ${
+            className={`btn btn-sm md:btn-md ${
               selectedPlan === "premium" ? "btn-primary" : "btn-ghost"
             }`}
             onClick={() => handlePlanChange("premium")}
@@ -150,7 +154,7 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
           </button>
         </div>
 
-        <div className="tabs tabs-boxed mb-4">
+        <div className="tabs tabs-boxed mb-4 overflow-x-auto flex-nowrap w-full">
           {days.map((day) => (
             <button
               key={day}
@@ -176,18 +180,22 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
                     key={`${mealTime}-${index}`}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="card bg-base-200"
+                    className="card bg-base-200 hover:shadow-lg transition-shadow"
                   >
-                    <div className="card-body">
-                      <h3 className="card-title text-lg">{`Snack ${
+                    <div className="card-body p-3 md:p-6">
+                      <h3 className="card-title text-base md:text-lg">{`Snack ${
                         index + 1
                       }`}</h3>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="w-4 h-4" />
+                      <div className="flex items-center gap-1.5 text-xs md:text-sm text-base-content/70">
+                        <Clock className="w-3.5 h-3.5 md:w-4 md:h-4" />
                         <span>{snack.time || "N/A"}</span>
                       </div>
-                      <p className="font-medium">{snack.name || "N/A"}</p>
-                      <p className="text-sm">{snack.recipe || "N/A"}</p>
+                      <p className="font-medium text-sm md:text-base mt-2">
+                        {snack.name || "N/A"}
+                      </p>
+                      <p className="text-xs md:text-sm text-base-content/80">
+                        {snack.recipe || "N/A"}
+                      </p>
                       {renderMealStats(snack)}
                     </div>
                   </motion.div>
@@ -200,18 +208,22 @@ export default function MealPlan({ mealPlan, onPlanChange }: Props) {
                     key={mealTime}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="card bg-base-200"
+                    className="card bg-base-200 hover:shadow-lg transition-shadow"
                   >
-                    <div className="card-body">
-                      <h3 className="card-title text-lg capitalize">
+                    <div className="card-body p-3 md:p-6">
+                      <h3 className="card-title text-base md:text-lg capitalize">
                         {mealTime}
                       </h3>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="w-4 h-4" />
+                      <div className="flex items-center gap-1.5 text-xs md:text-sm text-base-content/70">
+                        <Clock className="w-3.5 h-3.5 md:w-4 md:h-4" />
                         <span>{meal.time || "N/A"}</span>
                       </div>
-                      <p className="font-medium">{meal.name || "N/A"}</p>
-                      <p className="text-sm">{meal.recipe || "N/A"}</p>
+                      <p className="font-medium text-sm md:text-base mt-2">
+                        {meal.name || "N/A"}
+                      </p>
+                      <p className="text-xs md:text-sm text-base-content/80">
+                        {meal.recipe || "N/A"}
+                      </p>
                       {renderMealStats(meal)}
                     </div>
                   </motion.div>

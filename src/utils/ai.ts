@@ -1,4 +1,4 @@
-import { together } from "./together-client";
+import { aiClient } from "./ai-client";
 import {
   PersonalData,
   MacroTarget,
@@ -176,9 +176,10 @@ async function makeAIRequest(
   retryCount = 0
 ): Promise<any> {
   try {
-    const response = await together.complete({
-      model: import.meta.env.VITE_AI_MODEL,
-      prompt: `[INST] You are a fitness and nutrition expert. Provide your response as a valid JSON object.
+    const isGemini = import.meta.env.VITE_AI_PROVIDER === "gemini";
+    const model = isGemini ? "gemini-pro" : import.meta.env.VITE_AI_MODEL;
+
+    const basePrompt = `You are a fitness and nutrition expert. Provide your response as a valid JSON object.
 
 ${prompt}
 
@@ -190,234 +191,246 @@ Important:
 5. Ensure all JSON is properly formatted
 6. Use simple text for all string values
 7. Always close all arrays and objects properly
-8. Include commas between all array elements and object properties [/INST]`,
+8. Include commas between all array elements and object properties`;
+
+    const options = {
+      model,
+      prompt: isGemini ? basePrompt : `[INST] ${basePrompt} [/INST]`,
       max_tokens: 4000,
       temperature: 0.7,
-      top_p: 0.7,
-      top_k: 50,
-      repetition_penalty: 1,
-    });
-
-    if (!response.output.text) {
-      throw new Error("No response from AI");
-    }
-
-    console.log(
-      `Attempt ${retryCount + 1} - Raw AI Response:`,
-      response.output.text
-    );
-
-    // Clean and parse the response
-    let cleanedContent = response.output.text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .replace(/\/\/.*/g, "") // Remove single-line comments
-      .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
-      .replace(/Note:[\s\S]*$/, "") // Remove any "Note:" section
-      .replace(/https?:\/\/\S+/g, "") // Remove URLs
-      .replace(/\.\.\./g, "") // Remove ellipsis
-      .replace(/[^\x20-\x7E\n]/g, "") // Remove non-printable characters
-      .replace(/,(\s*[}\]])/g, "$1") // Remove trailing commas
-      .replace(/\s+/g, " ") // Normalize whitespace
-      .trim();
-
-    // Try to extract JSON if there's text before or after
-    const jsonMatch = cleanedContent.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (jsonMatch) {
-      cleanedContent = jsonMatch[0];
-    }
-
-    // Apply specific cleaning based on the response type
-    if (cleanedContent.includes('"mealPlan"')) {
-      cleanedContent = cleanMealPlanJson(cleanedContent);
-    } else if (cleanedContent.includes('"dayPlan"')) {
-      const dayPlanMatch = cleanedContent.match(/"dayPlan"\s*:\s*{([^}]+)}}/);
-      if (dayPlanMatch) {
-        const partialContent = dayPlanMatch[1];
-        // Check if we have a complete meal object
-        if (partialContent.includes('"macros"')) {
-          // Extract the complete meal and create a valid dayPlan structure
-          const mealMatch = partialContent.match(
-            /("breakfast"|"lunch"|"dinner")\s*:\s*({[^}]+})/
-          );
-          if (mealMatch) {
-            const [, mealType, mealContent] = mealMatch;
-            cleanedContent = `{
-              "dayPlan": {
-                ${mealType}: ${mealContent},
-                "lunch": ${JSON.stringify(createEmptyMeal())},
-                "dinner": ${JSON.stringify(createEmptyMeal())},
-                "snacks": []
-              }
-            }`.replace(/\s+/g, " ");
-          }
-        }
-      }
-    }
-
-    // Apply regular JSON cleaning
-    cleanedContent = cleanedContent
-      .replace(/}(\s*){/g, "}, {")
-      .replace(/](\s*)\[/g, "], [")
-      .replace(/}(\s*)"/, '}, "')
-      .replace(/,(\s*[}\]])/g, "$1")
-      .replace(/([{,]\s*)(\w+):/g, '$1"$2":')
-      .replace(/\[\s*{+\s*{/g, "[{")
-      .replace(/}\s*}+\s*\]/g, "}]")
-      .replace(/{{/g, "{")
-      .replace(/}}/g, "}")
-      .replace(/}\s+{/g, "}, {");
-
-    // Check for and fix incomplete JSON arrays/objects
-    const openBraces = (cleanedContent.match(/\{/g) || []).length;
-    const closeBraces = (cleanedContent.match(/\}/g) || []).length;
-    const openBrackets = (cleanedContent.match(/\[/g) || []).length;
-    const closeBrackets = (cleanedContent.match(/\]/g) || []).length;
-
-    // Add missing closing braces/brackets
-    if (openBraces > closeBraces) {
-      cleanedContent += "}".repeat(openBraces - closeBraces);
-    }
-    if (openBrackets > closeBrackets) {
-      cleanedContent += "]".repeat(openBrackets - closeBrackets);
-    }
-
-    // Ensure arrays and objects are properly nested
-    if (cleanedContent.includes('"macroTargets":')) {
-      const macroMatch = cleanedContent.match(
-        /"macroTargets"\s*:\s*\[([\s\S]*?)\]/
-      );
-      if (macroMatch) {
-        // Clean up the macros array content
-        let macrosContent = macroMatch[1]
-          .replace(/{{/g, "{")
-          .replace(/}}/g, "}")
-          .replace(/}\s*,?\s*{/g, "}, {")
-          .trim();
-
-        // Ensure the array starts and ends properly
-        if (!macrosContent.startsWith("{")) macrosContent = "{" + macrosContent;
-        if (!macrosContent.endsWith("}")) macrosContent = macrosContent + "}";
-
-        // Split into individual macro objects and clean each one
-        const macros = macrosContent
-          .split(/},\s*{/)
-          .map((macro) => macro.replace(/^{/, "").replace(/}$/, "").trim())
-          .filter(Boolean)
-          .map((macro) => `{${macro}}`);
-
-        // Replace the entire macroTargets array with cleaned version
-        cleanedContent = cleanedContent.replace(
-          /"macroTargets"\s*:\s*\[([\s\S]*?)\]/,
-          `"macroTargets": [${macros.join(", ")}]`
-        );
-      }
-    }
+      ...(isGemini
+        ? {}
+        : {
+            top_p: 0.7,
+            top_k: 50,
+            repetition_penalty: 1,
+          }),
+    };
 
     try {
-      const parsed = JSON.parse(cleanedContent);
+      const response = await aiClient.complete(options);
 
-      // Validate the response based on type
-      if (!validateResponse(parsed, type)) {
-        throw new Error(`Invalid ${type} response structure`);
+      if (!response.output.text) {
+        throw new Error("No response from AI");
       }
 
-      // Validate and clean grocery list if present
-      if (parsed.groceryList) {
-        parsed.groceryList = parsed.groceryList
-          .filter((item: any) => item && typeof item === "object")
-          .map((item: any) => ({
-            item: String(item.item || ""),
-            quantity: Number(item.quantity) || 0,
-            unit: String(item.unit || "unit"),
-            price: Number(item.price) || 0,
-            notes: String(item.notes || ""),
-          }));
+      console.log(
+        `Attempt ${retryCount + 1} - Raw AI Response:`,
+        response.output.text
+      );
+
+      // Clean and parse the response
+      let cleanedContent = response.output.text
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .replace(/\/\/.*/g, "") // Remove single-line comments
+        .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
+        .replace(/Note:[\s\S]*$/, "") // Remove any "Note:" section
+        .replace(/https?:\/\/\S+/g, "") // Remove URLs
+        .replace(/\.\.\./g, "") // Remove ellipsis
+        .replace(/[^\x20-\x7E\n]/g, "") // Remove non-printable characters
+        .replace(/,(\s*[}\]])/g, "$1") // Remove trailing commas
+        .replace(/\s+/g, " ") // Normalize whitespace
+        .trim();
+
+      // Try to extract JSON if there's text before or after
+      const jsonMatch = cleanedContent.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      if (jsonMatch) {
+        cleanedContent = jsonMatch[0];
       }
 
-      // Clean meal plan or day plan
-      const cleanPlan = (plan: any) => {
-        if (!plan || typeof plan !== "object") return plan;
-
-        // Clean meals
-        ["breakfast", "lunch", "dinner"].forEach((mealType) => {
-          if (plan[mealType]) {
-            plan[mealType] = {
-              name: String(plan[mealType]?.name || ""),
-              time: String(plan[mealType]?.time || ""),
-              recipe: String(plan[mealType]?.recipe || ""),
-              calories: cleanNumericValue(plan[mealType]?.calories),
-              macros: {
-                protein: cleanNumericValue(plan[mealType]?.macros?.protein),
-                carbs: cleanNumericValue(plan[mealType]?.macros?.carbs),
-                fats: cleanNumericValue(plan[mealType]?.macros?.fats),
-              },
-            };
+      // Apply specific cleaning based on the response type
+      if (cleanedContent.includes('"mealPlan"')) {
+        cleanedContent = cleanMealPlanJson(cleanedContent);
+      } else if (cleanedContent.includes('"dayPlan"')) {
+        const dayPlanMatch = cleanedContent.match(/"dayPlan"\s*:\s*{([^}]+)}}/);
+        if (dayPlanMatch) {
+          const partialContent = dayPlanMatch[1];
+          // Check if we have a complete meal object
+          if (partialContent.includes('"macros"')) {
+            // Extract the complete meal and create a valid dayPlan structure
+            const mealMatch = partialContent.match(
+              /("breakfast"|"lunch"|"dinner")\s*:\s*({[^}]+})/
+            );
+            if (mealMatch) {
+              const [, mealType, mealContent] = mealMatch;
+              cleanedContent = `{
+                "dayPlan": {
+                  ${mealType}: ${mealContent},
+                  "lunch": ${JSON.stringify(createEmptyMeal())},
+                  "dinner": ${JSON.stringify(createEmptyMeal())},
+                  "snacks": []
+                }
+              }`.replace(/\s+/g, " ");
+            }
           }
-        });
+        }
+      }
 
-        // Clean snacks array
-        if (plan.snacks) {
-          plan.snacks = Array.isArray(plan.snacks)
-            ? plan.snacks.map((snack: any) => ({
-                name: String(snack?.name || ""),
-                time: String(snack?.time || ""),
-                recipe: String(snack?.recipe || ""),
-                calories: cleanNumericValue(snack?.calories),
-                macros: {
-                  protein: cleanNumericValue(snack?.macros?.protein),
-                  carbs: cleanNumericValue(snack?.macros?.carbs),
-                  fats: cleanNumericValue(snack?.macros?.fats),
-                },
-              }))
-            : [];
+      // Apply regular JSON cleaning
+      cleanedContent = cleanedContent
+        .replace(/}(\s*){/g, "}, {")
+        .replace(/](\s*)\[/g, "], [")
+        .replace(/}(\s*)"/, '}, "')
+        .replace(/,(\s*[}\]])/g, "$1")
+        .replace(/([{,]\s*)(\w+):/g, '$1"$2":')
+        .replace(/\[\s*{+\s*{/g, "[{")
+        .replace(/}\s*}+\s*\]/g, "}]")
+        .replace(/{{/g, "{")
+        .replace(/}}/g, "}")
+        .replace(/}\s+{/g, "}, {");
+
+      // Check for and fix incomplete JSON arrays/objects
+      const openBraces = (cleanedContent.match(/\{/g) || []).length;
+      const closeBraces = (cleanedContent.match(/\}/g) || []).length;
+      const openBrackets = (cleanedContent.match(/\[/g) || []).length;
+      const closeBrackets = (cleanedContent.match(/\]/g) || []).length;
+
+      // Add missing closing braces/brackets
+      if (openBraces > closeBraces) {
+        cleanedContent += "}".repeat(openBraces - closeBraces);
+      }
+      if (openBrackets > closeBrackets) {
+        cleanedContent += "]".repeat(openBrackets - closeBrackets);
+      }
+
+      // Ensure arrays and objects are properly nested
+      if (cleanedContent.includes('"macroTargets":')) {
+        const macroMatch = cleanedContent.match(
+          /"macroTargets"\s*:\s*\[([\s\S]*?)\]/
+        );
+        if (macroMatch) {
+          // Clean up the macros array content
+          let macrosContent = macroMatch[1]
+            .replace(/{{/g, "{")
+            .replace(/}}/g, "}")
+            .replace(/}\s*,?\s*{/g, "}, {")
+            .trim();
+
+          // Ensure the array starts and ends properly
+          if (!macrosContent.startsWith("{"))
+            macrosContent = "{" + macrosContent;
+          if (!macrosContent.endsWith("}")) macrosContent = macrosContent + "}";
+
+          // Split into individual macro objects and clean each one
+          const macros = macrosContent
+            .split(/},\s*{/)
+            .map((macro) => macro.replace(/^{/, "").replace(/}$/, "").trim())
+            .filter(Boolean)
+            .map((macro) => `{${macro}}`);
+
+          // Replace the entire macroTargets array with cleaned version
+          cleanedContent = cleanedContent.replace(
+            /"macroTargets"\s*:\s*\[([\s\S]*?)\]/,
+            `"macroTargets": [${macros.join(", ")}]`
+          );
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(cleanedContent);
+
+        // Validate the response based on type
+        if (!validateResponse(parsed, type)) {
+          throw new Error(`Invalid ${type} response structure`);
         }
 
-        return plan;
-      };
+        // Validate and clean grocery list if present
+        if (parsed.groceryList) {
+          parsed.groceryList = parsed.groceryList
+            .filter((item: any) => item && typeof item === "object")
+            .map((item: any) => ({
+              item: String(item.item || ""),
+              quantity: Number(item.quantity) || 0,
+              unit: String(item.unit || "unit"),
+              price: Number(item.price) || 0,
+              notes: String(item.notes || ""),
+            }));
+        }
 
-      // Process meal plan if present
-      if (parsed.mealPlan) {
-        Object.keys(parsed.mealPlan).forEach((planType) => {
-          Object.keys(parsed.mealPlan[planType]).forEach((day) => {
-            parsed.mealPlan[planType][day] = cleanPlan(
-              parsed.mealPlan[planType][day]
-            );
+        // Clean meal plan or day plan
+        const cleanPlan = (plan: any) => {
+          if (!plan || typeof plan !== "object") return plan;
+
+          // Clean meals
+          ["breakfast", "lunch", "dinner"].forEach((mealType) => {
+            if (plan[mealType]) {
+              plan[mealType] = {
+                name: String(plan[mealType]?.name || ""),
+                time: String(plan[mealType]?.time || ""),
+                recipe: String(plan[mealType]?.recipe || ""),
+                calories: cleanNumericValue(plan[mealType]?.calories),
+                macros: {
+                  protein: cleanNumericValue(plan[mealType]?.macros?.protein),
+                  carbs: cleanNumericValue(plan[mealType]?.macros?.carbs),
+                  fats: cleanNumericValue(plan[mealType]?.macros?.fats),
+                },
+              };
+            }
           });
-        });
+
+          // Clean snacks array
+          if (plan.snacks) {
+            plan.snacks = Array.isArray(plan.snacks)
+              ? plan.snacks.map((snack: any) => ({
+                  name: String(snack?.name || ""),
+                  time: String(snack?.time || ""),
+                  recipe: String(snack?.recipe || ""),
+                  calories: cleanNumericValue(snack?.calories),
+                  macros: {
+                    protein: cleanNumericValue(snack?.macros?.protein),
+                    carbs: cleanNumericValue(snack?.macros?.carbs),
+                    fats: cleanNumericValue(snack?.macros?.fats),
+                  },
+                }))
+              : [];
+          }
+
+          return plan;
+        };
+
+        // Process meal plan if present
+        if (parsed.mealPlan) {
+          Object.keys(parsed.mealPlan).forEach((planType) => {
+            Object.keys(parsed.mealPlan[planType]).forEach((day) => {
+              parsed.mealPlan[planType][day] = cleanPlan(
+                parsed.mealPlan[planType][day]
+              );
+            });
+          });
+        }
+
+        // Process day plan if present
+        if (parsed.dayPlan) {
+          parsed.dayPlan = cleanPlan(parsed.dayPlan);
+        }
+
+        return parsed;
+      } catch (e) {
+        console.error(`Attempt ${retryCount + 1} - JSON Parse Error:`, e);
+        console.error("Cleaned Content:", cleanedContent);
+
+        // Retry logic
+        if (retryCount < MAX_RETRIES) {
+          console.log(`Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+          return makeAIRequest(prompt, type, retryCount + 1);
+        }
+
+        throw new Error(
+          `Could not parse JSON from response after ${MAX_RETRIES} attempts`
+        );
       }
-
-      // Process day plan if present
-      if (parsed.dayPlan) {
-        parsed.dayPlan = cleanPlan(parsed.dayPlan);
-      }
-
-      return parsed;
-    } catch (e) {
-      console.error(`Attempt ${retryCount + 1} - JSON Parse Error:`, e);
-      console.error("Cleaned Content:", cleanedContent);
-
-      // Retry logic
+    } catch (error) {
+      console.error(`Attempt ${retryCount + 1} - API Error:`, error);
       if (retryCount < MAX_RETRIES) {
         console.log(`Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
         return makeAIRequest(prompt, type, retryCount + 1);
       }
-
-      throw new Error(
-        `Could not parse JSON from response after ${MAX_RETRIES} attempts`
-      );
+      throw error;
     }
   } catch (error) {
-    console.error(`Attempt ${retryCount + 1} - AI Request Error:`, error);
-
-    // Retry logic for network errors
-    if (retryCount < MAX_RETRIES) {
-      console.log(`Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-      return makeAIRequest(prompt, type, retryCount + 1);
-    }
-
     throw new Error(
       `Failed to process AI response after ${MAX_RETRIES} attempts`
     );
