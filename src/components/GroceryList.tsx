@@ -62,20 +62,22 @@ export default function GroceryList({ groceryList }: Props) {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between md:justify-end gap-4 w-full md:w-auto">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-grow">
+                      {item.notes && (
+                        <span className="text-xs md:text-sm text-base-content/70 block">
+                          {item.notes}
+                        </span>
+                      )}
+                    </div>
                     <motion.div
                       initial={{ scale: 0.8 }}
                       animate={{ scale: 1 }}
                       transition={{ delay: index * 0.1 }}
-                      className="badge badge-primary py-3"
+                      className="badge badge-primary py-3 whitespace-nowrap"
                     >
                       {item.price} PKR
                     </motion.div>
-                    {item.notes && (
-                      <span className="text-xs md:text-sm text-base-content/70">
-                        {item.notes}
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>
