@@ -181,17 +181,17 @@ export default function MealPlan({ mealPlan }: Props) {
               transition={springTransition}
               className="flex items-center justify-between gap-4 bg-base-200 p-4 rounded-box "
             >
-              <div className="flex justify-between items-center w-full">
-                <h3 className="font-medium text-base md:text-lg capitalize">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full gap-3">
+                <h3 className="font-semibold text-lg md:text-xl capitalize mb-2 sm:mb-0 px-1">
                   {selectedDay}
                 </h3>
-                <div className="flex items-center gap-6 bg-primary/5 border border-primary/10 px-4 py-2 rounded-lg shadow-sm">
-                  {Object.entries(calculateDayTotals()).map(([key, value]) => (
-                    <div key={key} className="text-sm">
-                      <span className="font-semibold">
-                        {value}{key === 'calories' ? '' : 'g'}
-                      </span>
-                      <span className={`text-xs ml-1.5 ${
+                <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 sm:gap-6 bg-primary/5 border border-primary/10 p-3 sm:px-4 sm:py-2 rounded-lg shadow-sm">
+                   {Object.entries(calculateDayTotals()).map(([key, value]) => (
+                     <div key={key} className="flex flex-col items-start sm:items-center sm:flex-row p-2 sm:p-0 bg-base-100/50 sm:bg-transparent rounded-md">
+                       <span className="font-semibold text-base sm:text-sm whitespace-nowrap">
+                         {value}{key === 'calories' ? '' : 'g'}
+                       </span>
+                       <span className={`text-xs sm:ml-1.5 whitespace-nowrap ${
                         key === 'calories' ? 'text-primary' :
                         key === 'protein' ? 'text-secondary' :
                         key === 'carbs' ? 'text-accent' :
