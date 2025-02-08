@@ -80,7 +80,7 @@ function App() {
             </div>
           </div>
           <h1 className="text-5xl font-bold text-base-content mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            Pakistani Fitness & Nutrition Planner
+            Fitness & Nutrition Planner
           </h1>
           <p className="text-lg text-base-content/80">
             Your personalized journey to a healthier lifestyle starts here
