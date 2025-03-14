@@ -54,12 +54,38 @@ export interface MealPlan {
   };
 }
 
+export interface PriceSource {
+  website: string;
+  price: number;
+  url: string;
+  lastUpdated: string;
+}
+
+export interface PriceAnalysis {
+  averagePrice: number;
+  minPrice: number;
+  maxPrice: number;
+  priceRange: number;
+  isCurrentPriceCompetitive: boolean;
+  potentialSavings: number;
+}
+
+export interface PriceComparison {
+  currentPrice: number;
+  alternativePrices: PriceSource[];
+  loading: boolean;
+  error?: string;
+  analysis?: PriceAnalysis;
+}
+
 export interface GroceryItem {
   item: string;
   quantity: number;
   unit: string;
   price: number;
   notes?: string;
+  priceSearchQuery?: string;
+  priceComparison?: PriceComparison;
 }
 
 export interface WorkoutExercise {

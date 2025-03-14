@@ -1,8 +1,14 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  GoogleGenerativeAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  GenerateContentResult
+} from "@google/generative-ai";
 
 interface GeminiResponse {
   output: {
     text: string;
+    webSearchQueries?: string[];
   };
 }
 
@@ -75,8 +81,11 @@ class GeminiClient {
       
       const model = this.genAI.getGenerativeModel({ model: this.model });
 
+      // Modify prompt to request search queries in a specific format
+      const enhancedPrompt = `${prompt}\n\nPlease include search queries for price verification in [SEARCH:query] format.`;
+      
       const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
         generationConfig: {
           temperature,
           maxOutputTokens: max_tokens,
@@ -88,9 +97,18 @@ class GeminiClient {
       const response = await result.response;
       const text = response.text();
 
+      // Extract search queries using regex
+      const searchQueries = text.match(/\[SEARCH:(.*?)\]/g)?.map(match =>
+        match.replace(/\[SEARCH:(.*?)\]/, '$1').trim()
+      ) || [];
+
+      // Remove the search queries from the final text
+      const cleanText = text.replace(/\[SEARCH:.*?\]/g, '').trim();
+
       return {
         output: {
-          text,
+          text: cleanText,
+          webSearchQueries: searchQueries
         },
       };
     } catch (error: any) {

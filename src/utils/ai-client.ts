@@ -4,6 +4,7 @@ import { gemini } from "./gemini-client";
 interface AIResponse {
   output: {
     text: string;
+    webSearchQueries?: string[];
   };
 }
 

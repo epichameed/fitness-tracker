@@ -517,8 +517,11 @@ export async function generateGroceryList(
   mealPlan: MealPlan,
   planType: "affordable" | "premium"
 ): Promise<GroceryItem[]> {
-  const prompt = `Generate a grocery list for this meal plan:
+  const prompt = `Generate a grocery list for this meal plan and include search queries for price verification:
     ${JSON.stringify(mealPlan[planType])}
+    
+    For each grocery item, add a search query in [SEARCH:query] format to verify current local market prices.
+    Example: For "chicken breast", add [SEARCH:chicken breast price per kg pakistan]
     
     Return a JSON object with this EXACT structure:
     {
@@ -535,26 +538,45 @@ export async function generateGroceryList(
 
     Important:
     1. Every item MUST have all fields (item, quantity, unit, price, notes)
-    2. Do not include any text outside the JSON object
-    3. Do not include any comments in the JSON
+    2. Include a [SEARCH:query] before each grocery item for price verification
+    3. Make search queries specific to Pakistani market prices
     4. Format all items consistently`;
+
+  const response = await aiClient.complete({
+    model: import.meta.env.VITE_AI_PROVIDER === "gemini" ? "gemini-pro" : import.meta.env.VITE_AI_MODEL,
+    prompt,
+    max_tokens: 4000,
+    temperature: 0.7,
+  });
 
   const result = await makeAIRequest(prompt, "grocery");
   if (!result.groceryList || !Array.isArray(result.groceryList)) {
     throw new Error("Invalid grocery list response format");
   }
 
-  // Filter out any malformed items
-  return result.groceryList.filter(
-    (item: any) =>
-      item &&
-      typeof item === "object" &&
-      typeof item.item === "string" &&
-      typeof item.quantity === "number" &&
-      typeof item.unit === "string" &&
-      typeof item.price === "number" &&
-      typeof item.notes === "string"
-  );
+  // Extract search queries from the response text
+  const searchQueries = response.output.text
+    .match(/\[SEARCH:(.*?)\]/g)
+    ?.map(query => query.replace(/\[SEARCH:(.*?)\]/, '$1').trim()) || [];
+
+  // Match search queries with grocery items
+  const groceryList = result.groceryList
+    .filter(
+      (item: any) =>
+        item &&
+        typeof item === "object" &&
+        typeof item.item === "string" &&
+        typeof item.quantity === "number" &&
+        typeof item.unit === "string" &&
+        typeof item.price === "number" &&
+        typeof item.notes === "string"
+    )
+    .map((item: GroceryItem, index: number) => ({
+      ...item,
+      priceSearchQuery: searchQueries[index] || `${item.item} price per ${item.unit} pakistan`
+    }));
+
+  return groceryList;
 }
 
 export async function generateWorkoutPlan(
