@@ -61,7 +61,7 @@ class GeminiClient {
 
   async complete({
     prompt,
-    max_tokens = 2000,
+    max_tokens = 8192,
     temperature = 0.7,
   }: {
     model?: string;
@@ -81,11 +81,8 @@ class GeminiClient {
       
       const model = this.genAI.getGenerativeModel({ model: this.model });
 
-      // Modify prompt to request search queries in a specific format
-      const enhancedPrompt = `${prompt}\n\nPlease include search queries for price verification in [SEARCH:query] format.`;
-      
       const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
           temperature,
           maxOutputTokens: max_tokens,
@@ -97,18 +94,10 @@ class GeminiClient {
       const response = await result.response;
       const text = response.text();
 
-      // Extract search queries using regex
-      const searchQueries = text.match(/\[SEARCH:(.*?)\]/g)?.map(match =>
-        match.replace(/\[SEARCH:(.*?)\]/, '$1').trim()
-      ) || [];
-
-      // Remove the search queries from the final text
-      const cleanText = text.replace(/\[SEARCH:.*?\]/g, '').trim();
-
       return {
         output: {
-          text: cleanText,
-          webSearchQueries: searchQueries
+          text: text,
+          webSearchQueries: []
         },
       };
     } catch (error: any) {

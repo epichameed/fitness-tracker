@@ -46,8 +46,16 @@ function validateResponse(
   try {
     switch (type) {
       case "meal":
-        if (!data?.mealPlan?.affordable?.monday?.breakfast) return false;
-        const sampleMeal = data.mealPlan.affordable.monday.breakfast;
+        // Check for any valid day in the meal plan (for chunked generation)
+        if (!data?.mealPlan?.affordable) return false;
+        const days = Object.keys(data.mealPlan.affordable);
+        if (days.length === 0) return false;
+        
+        // Find the first day with a breakfast to validate
+        const firstDay = days[0];
+        const sampleMeal = data.mealPlan.affordable[firstDay]?.breakfast;
+        if (!sampleMeal) return false;
+        
         return (
           typeof sampleMeal.name === "string" &&
           typeof sampleMeal.time === "string" &&
@@ -196,7 +204,7 @@ Important:
     const options = {
       model,
       prompt: isGemini ? basePrompt : `[INST] ${basePrompt} [/INST]`,
-      max_tokens: 4000,
+      max_tokens: 8192,
       temperature: 0.7,
       ...(isGemini
         ? {}
@@ -469,59 +477,119 @@ export async function generateMealPlans(
   tdee: number,
   macroTargets: MacroTarget[]
 ): Promise<MealPlan> {
-  const prompt = `Generate a complete 7-day Pakistani meal plan with these parameters:
-    {
-      "calories": ${tdee},
-      "goal": "${personalData.goal}",
-      "macros": ${JSON.stringify(macroTargets)}
-    }
+  // Generate meal plan in two batches to avoid response truncation
+  const days1 = ["monday", "tuesday", "wednesday", "thursday"];
+  const days2 = ["friday", "saturday", "sunday"];
 
-    Return a JSON object with this structure for ALL days and BOTH plan types:
+  const generateBatch = async (days: string[]) => {
+    // Calculate per-meal macro targets (4 meals: breakfast, lunch, dinner, snack)
+    const proteinTarget = macroTargets.find(m => m.nutrient === "protein")?.amount || 150;
+    const carbsTarget = macroTargets.find(m => m.nutrient === "carbohydrates")?.amount || 200;
+    const fatsTarget = macroTargets.find(m => m.nutrient === "fats")?.amount || 60;
+    
+    // Distribute macros: 25% breakfast, 35% lunch, 30% dinner, 10% snack
+    const mealDistribution = {
+      breakfast: { protein: Math.round(proteinTarget * 0.25), carbs: Math.round(carbsTarget * 0.25), fats: Math.round(fatsTarget * 0.25) },
+      lunch: { protein: Math.round(proteinTarget * 0.35), carbs: Math.round(carbsTarget * 0.35), fats: Math.round(fatsTarget * 0.35) },
+      dinner: { protein: Math.round(proteinTarget * 0.30), carbs: Math.round(carbsTarget * 0.30), fats: Math.round(fatsTarget * 0.30) },
+      snack: { protein: Math.round(proteinTarget * 0.10), carbs: Math.round(carbsTarget * 0.10), fats: Math.round(fatsTarget * 0.10) }
+    };
+
+    const prompt = `You are a Pakistani FITNESS COACH. Generate a PRECISE macro-matched meal plan for: ${days.join(", ")}
+    
+    STRICT DAILY TARGETS (MUST BE MET EXACTLY):
+    - Total Calories: ${tdee} kcal
+    - Total Protein: ${proteinTarget}g (THIS IS CRITICAL - DO NOT GO BELOW)
+    - Total Carbs: ${carbsTarget}g
+    - Total Fats: ${fatsTarget}g
+    - Goal: ${personalData.goal}
+
+    PER-MEAL MACRO TARGETS (follow these closely):
+    - Breakfast: ${mealDistribution.breakfast.protein}g protein, ${mealDistribution.breakfast.carbs}g carbs, ${mealDistribution.breakfast.fats}g fats
+    - Lunch: ${mealDistribution.lunch.protein}g protein, ${mealDistribution.lunch.carbs}g carbs, ${mealDistribution.lunch.fats}g fats  
+    - Dinner: ${mealDistribution.dinner.protein}g protein, ${mealDistribution.dinner.carbs}g carbs, ${mealDistribution.dinner.fats}g fats
+    - Snack: ${mealDistribution.snack.protein}g protein, ${mealDistribution.snack.carbs}g carbs, ${mealDistribution.snack.fats}g fats
+
+    Return a JSON object with this EXACT structure:
     {
       "mealPlan": {
         "affordable": {
-          "monday": {
+          "${days[0]}": {
             "breakfast": {
-              "name": "string (name of dish)",
-              "time": "HH:MM format",
-              "recipe": "Brief cooking instructions without URLs or special characters",
-              "calories": number (without units),
-              "macros": {
-                "protein": number (without units),
-                "carbs": number (without units),
-                "fats": number (without units)
-              }
-            }
+              "name": "Fitness meal name",
+              "time": "HH:MM",
+              "recipe": "Detailed ingredients with quantities",
+              "calories": number,
+              "macros": { "protein": ${mealDistribution.breakfast.protein}, "carbs": ${mealDistribution.breakfast.carbs}, "fats": ${mealDistribution.breakfast.fats} }
+            },
+            "lunch": { same structure with lunch macros },
+            "dinner": { same structure with dinner macros },
+            "snack": { same structure with snack macros }
           }
         }
       }
     }
 
-    Important:
-    1. Do not use "same as" or "same structure as" - provide complete objects
-    2. Fill in all days (monday through sunday) for both affordable and premium plans
-    3. Keep recipe instructions brief and simple
-    4. Use real Pakistani recipes
-    5. Ensure all meals add up to daily calorie target
-    6. Do not add units (g, mg, etc.) to numeric values
-    7. Return only valid JSON with complete objects`;
+    HIGH PROTEIN FOOD PORTIONS TO HIT TARGETS:
+    - 200g chicken breast = 62g protein
+    - 4 whole eggs = 24g protein
+    - 6 egg whites = 22g protein  
+    - 200g fish/salmon = 40g protein
+    - 200g lean beef = 52g protein
+    - 100g paneer = 18g protein
+    - 1 cup daal = 18g protein
+    - 200g Greek yogurt = 20g protein
 
-  const result = await makeAIRequest(prompt, "meal");
-  if (!result.mealPlan) {
-    throw new Error("Invalid meal plan response format");
+    FITNESS MEAL REQUIREMENTS:
+    1. GRILLED/BAKED/BOILED proteins - NO frying
+    2. Use large protein portions to hit ${proteinTarget}g daily protein
+    3. Carbs: Brown rice, oats, whole wheat chapati, sweet potato
+    4. RECIPE FORMAT: "200g grilled chicken breast, 1.5 cups brown rice, 100g steamed broccoli, 1 tsp olive oil"
+    
+    CRITICAL:
+    - Include ONLY these days: ${days.join(", ")}
+    - Each day's meals MUST add up to: ${proteinTarget}g protein, ${carbsTarget}g carbs, ${fatsTarget}g fats
+    - All numeric values without units
+    - Return ONLY valid JSON, no markdown`;
+
+    return makeAIRequest(prompt, "meal");
+  };
+
+  // Generate both batches
+  const [batch1, batch2] = await Promise.all([
+    generateBatch(days1),
+    generateBatch(days2)
+  ]);
+
+  // Merge the meal plans
+  const mergedPlan: MealPlan = {
+    affordable: {
+      ...batch1.mealPlan?.affordable,
+      ...batch2.mealPlan?.affordable
+    },
+    premium: {
+      ...batch1.mealPlan?.affordable, // Use affordable as premium for now
+      ...batch2.mealPlan?.affordable
+    }
+  };
+
+  // Validate we have all days
+  const allDays = [...days1, ...days2];
+  for (const day of allDays) {
+    if (!mergedPlan.affordable[day]) {
+      console.warn(`Missing day in meal plan: ${day}`);
+    }
   }
-  return result.mealPlan;
+
+  return mergedPlan;
 }
 
 export async function generateGroceryList(
   mealPlan: MealPlan,
   planType: "affordable" | "premium"
 ): Promise<GroceryItem[]> {
-  const prompt = `Generate a grocery list for this meal plan and include search queries for price verification:
+  const prompt = `Generate a complete grocery list for this weekly meal plan:
     ${JSON.stringify(mealPlan[planType])}
-    
-    For each grocery item, add a search query in [SEARCH:query] format to verify current local market prices.
-    Example: For "chicken breast", add [SEARCH:chicken breast price per kg pakistan]
     
     Return a JSON object with this EXACT structure:
     {
@@ -538,28 +606,18 @@ export async function generateGroceryList(
 
     Important:
     1. Every item MUST have all fields (item, quantity, unit, price, notes)
-    2. Include a [SEARCH:query] before each grocery item for price verification
-    3. Make search queries specific to Pakistani market prices
-    4. Format all items consistently`;
-
-  const response = await aiClient.complete({
-    model: import.meta.env.VITE_AI_PROVIDER === "gemini" ? "gemini-pro" : import.meta.env.VITE_AI_MODEL,
-    prompt,
-    max_tokens: 4000,
-    temperature: 0.7,
-  });
+    2. Include ALL ingredients needed for the entire week
+    3. Use Pakistani market prices in PKR
+    4. Consolidate duplicate ingredients and sum their quantities
+    5. Return ONLY valid JSON - no additional text or comments
+    6. Ensure the JSON is complete and properly closed`;
 
   const result = await makeAIRequest(prompt, "grocery");
   if (!result.groceryList || !Array.isArray(result.groceryList)) {
     throw new Error("Invalid grocery list response format");
   }
 
-  // Extract search queries from the response text
-  const searchQueries = response.output.text
-    .match(/\[SEARCH:(.*?)\]/g)
-    ?.map(query => query.replace(/\[SEARCH:(.*?)\]/, '$1').trim()) || [];
-
-  // Match search queries with grocery items
+  // Filter and validate grocery items
   const groceryList = result.groceryList
     .filter(
       (item: any) =>
@@ -568,12 +626,14 @@ export async function generateGroceryList(
         typeof item.item === "string" &&
         typeof item.quantity === "number" &&
         typeof item.unit === "string" &&
-        typeof item.price === "number" &&
-        typeof item.notes === "string"
+        typeof item.price === "number"
     )
-    .map((item: GroceryItem, index: number) => ({
-      ...item,
-      priceSearchQuery: searchQueries[index] || `${item.item} price per ${item.unit} pakistan`
+    .map((item: GroceryItem) => ({
+      item: item.item.trim(),
+      quantity: item.quantity,
+      unit: item.unit,
+      price: item.price,
+      notes: item.notes || ""
     }));
 
   return groceryList;
@@ -621,41 +681,44 @@ export async function generateDayPlan(
   planType: "affordable" | "premium",
   day: string
 ): Promise<DayPlan> {
-  const prompt = `Generate a single day Pakistani meal plan with these parameters:
-    {
-      "calories": ${tdee},
-      "goal": "${personalData.goal}",
-      "planType": "${planType}",
-      "day": "${day}",
-      "macros": ${JSON.stringify(macroTargets)}
-    }
+  const prompt = `You are a Pakistani FITNESS COACH and bodybuilder nutritionist. Generate a CLEAN EATING meal plan for ${day}.
+    
+    User Profile:
+    - Daily Calories: ${tdee} kcal
+    - Goal: ${personalData.goal}
+    - Plan Type: ${planType}
+    - Target Macros: ${JSON.stringify(macroTargets)}
 
     Return a JSON object with this structure:
     {
       "dayPlan": {
         "breakfast": {
-          "name": "string (name of dish)",
-          "time": "HH:MM format",
-          "recipe": "Brief cooking instructions without URLs or special characters",
+          "name": "Fitness meal name",
+          "time": "HH:MM",
+          "recipe": "Detailed ingredients with quantities",
           "calories": number,
-          "macros": {
-            "protein": number,
-            "carbs": number,
-            "fats": number
-          }
+          "macros": { "protein": number, "carbs": number, "fats": number }
         },
-        "lunch": { SAME STRUCTURE AS BREAKFAST },
-        "dinner": { SAME STRUCTURE AS BREAKFAST },
-        "snacks": [{ SAME STRUCTURE AS BREAKFAST }]
+        "lunch": { same structure },
+        "dinner": { same structure },
+        "snacks": [{ same structure }]
       }
     }
 
-    Important:
-    1. Keep recipe instructions brief and simple
-    2. Use real Pakistani recipes
-    3. Ensure all meals add up to daily calorie target
-    4. For premium plan, include higher quality ingredients and more variety
-    5. Return only valid JSON with complete objects`;
+    FITNESS MEAL REQUIREMENTS:
+    1. GRILLED/BAKED/BOILED proteins - NO frying, minimal oil (1 tsp max)
+    2. Prefer: Grilled chicken breast, egg whites, grilled fish, lean beef
+    3. Carbs: Brown rice, oats, whole wheat chapati, sweet potato
+    4. Fats: Olive oil, almonds, walnuts, peanut butter
+    5. AVOID: Heavy curries, fried foods, ghee, white rice
+    6. ${planType === "premium" ? "Premium: Use olive oil, salmon, quinoa, grass-fed beef" : "Budget: Use regular chicken, eggs, brown rice, local fish"}
+    
+    RECIPE FORMAT: "150g grilled chicken, 1 cup brown rice, 100g steamed veggies, 1 tsp olive oil"
+    
+    CRITICAL:
+    - HIGH PROTEIN in every meal (30-50g)
+    - All numeric values without units
+    - Return ONLY valid JSON`;
 
   const result = await makeAIRequest(prompt, "dayPlan");
   if (!result.dayPlan) {
